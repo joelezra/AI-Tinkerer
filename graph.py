@@ -7,8 +7,8 @@ from sentence_transformers import SentenceTransformer
 model = SentenceTransformer('all-mpnet-base-v2')
 
 # Example usage
-pdf_1_path = "ekyc_2024_04.pdf"  # Replace with your PDF file paths
-pdf_2_path = "ekyc_2020_06.pdf"
+pdf_1_path = "ekyc_2020_06.pdf" # Replace with your PDF file paths
+pdf_2_path = "ekyc_2024_04.pdf"
 
 sections1 = extract_sections(pdf_1_path)
 sections2 = extract_sections(pdf_2_path)
@@ -21,10 +21,10 @@ G = nx.Graph()
 
 # Add nodes for sections in both PDFs
 for section in sections1:
-    G.add_node(f"PDF1_{section}", label=section)
+    G.add_node(f"ekyc2020_{section}", label=section)
 
 for section in sections2:
-    G.add_node(f"PDF2_{section}", label=section)
+    G.add_node(f"ekyc2024_{section}", label=section)
 
 # Add edges based on section mappings and comparison results
 for section1, section2 in mapping.items():
@@ -45,4 +45,3 @@ nx.draw(G, pos, edge_color=colors, with_labels=True, node_size=3000, font_size=1
 
 # Show the plot
 plt.show()
-
