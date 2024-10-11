@@ -1,0 +1,48 @@
+Section: 1.1
+Change: no change
+Explanation: Sections are semantically similar (cosine similarity: 0.83)
+
+Section: 1.2
+Change: semantic change
+Explanation: Sections differ semantically (cosine similarity: 0.70)
+
+Section: 1.3
+Change: semantic change
+Explanation: Sections differ semantically (cosine similarity: 0.76)
+
+Section: 2.1
+Change: semantic change
+Explanation: Sections differ semantically (cosine similarity: 0.79)
+
+Section: 5.2
+Change: semantic change
+Explanation: Sections differ semantically (cosine similarity: 0.50)
+
+Section: 2.2
+Change: semantic change
+Explanation: Sections differ semantically (cosine similarity: 0.34)
+
+Section: 3.1
+Change: no change
+Explanation: Sections are semantically similar (cosine similarity: 0.94)
+
+Section: 4.1
+Change: no change
+Explanation: Sections are semantically similar (cosine similarity: 0.83)
+
+Section: 5.1
+Change: no change
+Explanation: Sections are semantically similar (cosine similarity: 1.00)
+
+Section: 6.1
+Change: no change
+Explanation: Sections are semantically similar (cosine similarity: 0.87)
+
+Section: 6.2
+Change: semantic change
+Explanation: Sections differ semantically (cosine similarity: 0.59)
+
+Section: 8.6
+Change: semantic change
+Explanation: Sections differ semantically (cosine similarity: 0.59)
+
