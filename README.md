@@ -1,3 +1,5 @@
 This is the README. Will update soon.
 
-![image](https://github.com/user-attachments/assets/719e02f1-bbf9-4afb-985e-790ee7e91417)
+Latest addition: Called gpt-3.5-turbo to compare documents. Don't run this, it calls 17 times (idk why) the chunk size is huge so idk why it calls 17 times. Next idea here is to provide an initial example for gpt to identify the desired output (eg Joseph's output) , then will need to handle the sections splitting again to point section to section comparison, batch call to run all section comparisons in parallel. My output here is still too chunky, added screenshots to assets for reference of what I got.
+
+You can see that it is respecting my format I laid out but the prompt needs further refining to get what we actually want. I suspect the splitting is not good enough either, in Joseph's example he gave the LLM the old document text and the corresponding text in the new document. This made it easy for the LLM to do the diff. The current approach I did is just chunking and then comparing chunks to chunks, but if section 8.6-8.33 in new document does not exist in old, how does this work then? We need to spoon feed the LLM so they can focus on one task: comparison. You will also notice it skipped some chunks like 5 and 14 and so on. chunk 15 it went crazy dy. 
