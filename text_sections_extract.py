@@ -150,6 +150,7 @@ def tidy_html(line):
 def get_title(page):
     return
 
+
 # Example usage:
 pdf_1_path = "sample/ekyc_2024_04.pdf"  # Replace with your PDF file paths
 pdf_2_path = "sample/ekyc_2020_06.pdf"
