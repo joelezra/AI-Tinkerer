@@ -1,5 +1,6 @@
 import re
 import pymupdf  # PyMuPDF
+import html
 # from sentence_transformers import SentenceTransformer, util #for semantic comparison
 
 #For better semantic comparison, install sentence-transformers: pip install sentence-transformers
@@ -9,9 +10,17 @@ def extract_sections(pdf_path):
     doc = pymupdf.open(pdf_path)
     sections = {}
     current_section = None
+    #Get document title to filter it from future pages; this is grabbed by looking at the first line on the 2nd page
+    global doc_title
+    page_1 = doc[1].get_text(sort=True)
+    for line in page_1.splitlines():
+        if line.strip() != "":
+            doc_title = re.sub(r"(\s{5,}).*","", line).strip()
+            break
+    print("Doc title: " + doc_title)
     #previous_section = None  # Keep track of the previous section number
-    full_stop = False
-    stop_point = "8.1a6" #Set this for early stop for testing
+    stop_point = "none" #Set this to a section name for early stop for testing
+    full_stop = False #Don't touch, this is for the above
     in_appendix = False
     for page in doc:
         text = page.get_text(sort=True)
@@ -91,29 +100,55 @@ def extract_sections(pdf_path):
                     notenum = footmatch.group(2)
                     if not notenum in footnotes_in_page: #First appearance of small number; ie the indicator and not the actual footnote
                         footnotes_in_page[notenum] = current_section if (current_section.find("A")>-1) else current_section_html
-                    else:
-                        footnote_section = True #The first repeated small number shows the start of the footnotes section                    
+                    else:                    
                         foot_text = footmatch.group(3)
                         foot_text = re.sub(r"<.*?>","",foot_text)
                         linked_section = footnotes_in_page[notenum]
                         if not 'footnotes' in sections[linked_section]:
                             sections[linked_section]['footnotes'] = {}
                         print("FOOTNOTE " + notenum)
-                        sections[linked_section]['footnotes'].update( { notenum: foot_text.strip() } )
+                        foot_text = tidy_html(foot_text)
+                        if not footnote_section: #The first time it finds footnotes on a page, look at the page's last section and cut out the footnote text and everything after
+                            footnote_start_regex = notenum + r"\s+" + foot_text[:10] + ".*"
+                            sections[current_section]['text'] = re.sub(footnote_start_regex, "", sections[current_section]['text'])
+                        sections[linked_section]['footnotes'].update( { notenum: foot_text } )
+                        footnote_section = True #The first repeated small number shows the start of the footnotes section
             elif footnote_section:
                     foot_text = re.sub(r"<.*?>","",line)
-                    sections[linked_section]['footnotes'][notenum] += " " + ''.join(foot_text.strip())
+                    foot_text = tidy_html(foot_text)
+                    sections[linked_section]['footnotes'][notenum] += " " + ''.join(foot_text)
 
     return sections
 
+#Trims lines
 def tidy_line(line):
     tidyline = line.strip()
     if re.match(r"\([ivx]{1,4}\)", tidyline):
         tidyline = "\n" + tidyline #Tries to put a linebreak in front of (i), (iv), etc - currently detects it properly but inserting \n does not work
+    #Remove spaces
     tidyline = re.sub(r"(\s+)"," ", tidyline)
+    #We see whether the line is blank after removing page number and title; if it's blank then delete the whole line
+    #Remove 'Page x of y' or 'x of y'
+    maybeline = re.sub(r"([Pp]age)?\s+\d+ of \d+", "", tidyline)
+    #Remove line if it is only the doc title
+    maybeline = maybeline.replace(doc_title,"")
+    maybeline = re.sub(r"Issued on:\s+\d+\s+\w+\s+\d+","", maybeline)
+    if maybeline.strip() == "":
+        tidyline = ""
     return tidyline
-    
 
+#Unescapes html entities like &#x2019; to convert them to normal
+def tidy_html(line):
+    tidyhtml = line.strip()
+    entities = re.findall(r'&#[xX]?[0-9a-fA-F]+;', tidyhtml)
+    # Replace each entity with its corresponding symbol
+    for entity in entities:
+        symbol = html.unescape(entity)
+        tidyhtml = tidyhtml.replace(entity, symbol)
+    return tidyhtml
+
+def get_title(page):
+    return
 
 # Example usage:
 pdf_1_path = "sample/ekyc_2024_04.pdf"  # Replace with your PDF file paths
@@ -135,18 +170,30 @@ def save_sections_to_file(pdf, output_file):
             f.write("\n")  # Add an empty line between sections
     print(f"Wrote to {output_file}")
 
-def test_extract_to_file(): #Currently broken, ignore
-    to_write = test_print(pdf_1_path)
-    with open("test_extract.txt", 'w', encoding="utf-8") as f:
+def test_extract_to_file(pdf_path,output='test_extract'):
+    to_write = test_print_all(pdf_path)
+    with open(output+".txt", 'w', encoding="utf-8") as f:
         for i in to_write:
             f.write(f"{i}\n")
+    print(f"Wrote {output}.txt")
     return
 
-def test_print(pdf_path):
+def test_print_1pg(pdf_path):
     doc = pymupdf.open(pdf_path)
-    text = doc[7].get_text(sort=True)
+    text = doc[1].get_text(sort=True)
+    lines = []
     for line in text.splitlines():
-        print(line)
+        lines.append(line)
+    return lines
+
+def test_print_all(pdf_path):
+    doc = pymupdf.open(pdf_path)
+    lines = []
+    for page in doc:
+        text = page.get_text(sort=True)
+        for line in text.splitlines():
+            lines.append(line)
+    return lines
 
 def test_html(pdf_path, page):
     doc = pymupdf.open(pdf_path)
@@ -166,14 +213,12 @@ def test_html_clean(pdf_path, page):
     print(f"Wrote to test_htmlout2.txt")
 # Example usage
 
-#test_extract_to_file()
-
 #sections1 = extract_sections(pdf_1_path )
 #sections2 = extract_sections(pdf_2_path )
 
 output_file = "test_output.txt"
-save_sections_to_file(pdf_1_path, output_file)
+#save_sections_to_file(pdf_1_path, output_file)
 
 #test_html(pdf_3_path, 7)
 #test_html_clean(pdf_1_path, 8)
-#test_print(pdf_3_path)
+test_extract_to_file(pdf_4_path,"pdf4raw")
