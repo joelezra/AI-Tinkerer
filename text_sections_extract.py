@@ -232,7 +232,7 @@ def test_print_all(pdf_path):
 
 def test_html(pdf_path, page):
     doc = pymupdf.open(pdf_path)
-    htmlout = doc[page].get_text("html", sort=True)
+    htmlout = doc[page].get_text("html")
     with open("test_htmlout.html", 'w', encoding="utf-8") as f:
         for line in htmlout.splitlines():
             f.write(f"{line}\n")
@@ -240,21 +240,34 @@ def test_html(pdf_path, page):
 
 def test_html_clean(pdf_path, page):
     doc = pymupdf.open(pdf_path)
-    htmlout = doc[page].get_text("html", sort=True)
+    htmlout = doc[page].get_text("html")
     with open("test_htmlout2.txt", 'w', encoding="utf-8") as f:
         for line in htmlout.splitlines():
             hline = re.sub(r"<(?!b>)(?!\/b>).*?>","",line)
             f.write(f"{hline}\n\n")
     print(f"Wrote to test_htmlout2.txt")
+
+def test_dict(pdf_path, page):
+    doc = pymupdf.open(pdf_path)
+    dictout = doc[page].get_text("dict", sort=True)
+    #print(dictout)
+    with open("test_dictout.py", 'w', encoding="utf-8") as f:
+        for block in dictout['blocks']:
+            for blockpart in block['lines']:
+                for span in blockpart['spans']:
+                    print(f"{span['text']}\n")
+    print(f"Wrote to test_dictout.py")
+
 # Example usage
 
 #sections1 = extract_sections(pdf_1_path )
 #sections2 = extract_sections(pdf_2_path )
 
-output_file = "test_output2.txt"
+output_file = "test_output2-nonphoenix.txt"
 save_sections_to_file(pdf_2_path, output_file)
 
 #test_html(pdf_2_path, 19)
+#test_dict(pdf_2_path, 14)
 #test_html_clean(pdf_2_path, 19)
 #test_extract_to_file(pdf_4_path,"pdf4raw")
 
