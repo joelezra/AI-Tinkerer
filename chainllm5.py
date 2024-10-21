@@ -31,7 +31,7 @@ pc = Pinecone(
 )
 index_name='pdf-gaia-test'
 
-index = pc.Index(index_name)
+index = pc.Index(index_name, 'https://pdf-gaia-test-f3fg8ao.svc.aped-4627-b74a.pinecone.io')
 
 parser = StrOutputParser()
 llm = ChatOpenAI()
@@ -58,7 +58,8 @@ pdf_sections2 = extract_sections("ekyc_2024_04.pdf")
 group_sections1 = group_subsections(pdf_sections1) # Old policy
 group_sections2 = group_subsections(pdf_sections2) # revised policy
 
-# Chunk text into manageable sizes (consistent for both old and revised policies)
+# print(group_sections1)
+
 def chunk_text(text, chunk_size=1000, overlap=100):
     chunks = []
     start = 0
@@ -69,80 +70,123 @@ def chunk_text(text, chunk_size=1000, overlap=100):
         chunk = text[start:end]
         chunks.append(chunk)
         start += chunk_size - overlap  # Move the window with overlap
-        print(len(chunks))
 
     return chunks
 
-# Example of combining 'text' and 'footnotes' before chunking
-def chunk_text_with_footnotes(content, chunk_size=1000, overlap=100):
-    # Check if content is already a string or a dictionary
-    print(type(content))
-    print
-    if isinstance(content, str):
-        full_text = content  # If it's a string, use it directly
-    elif isinstance(content, dict):
-        full_text = content['text']  # If it's a dictionary, extract the 'text'
-        # if 'footnotes' in content and content['footnotes']:
-        if 'footnotes' in content: 
-            print(content['footnotes'])
-            footnotes = content['footnotes']
-            if isinstance(footnotes, list):
-                footnotes = "\n".join(footnotes)  # If footnotes are a list, join them
-            full_text += "\nFootnotes:\n" + footnotes  # Append footnotes to the main text
-    else:
-        raise TypeError("Unexpected content type. Must be string or dictionary.")
-    
-    return chunk_text(full_text, chunk_size=chunk_size, overlap=overlap)
+def extract_and_chunk_policy(policy_dict, chunk_size=1000, overlap=100):
+    section_chunks = {}
 
-
-# Function to chunk the entire policy (both old and revised)
-def chunk_policy_sections(policy_dict):
-    chunked_policy = {}
-    
+    # Iterate through each section in the policy documents
     for section, subsections in policy_dict.items():
-        chunked_subsections = {}
-        for subsection, content in subsections.items():
-            text_chunks = chunk_text_with_footnotes(content['text'], chunk_size=1000, overlap=100)
-            print(text_chunks)
-            chunked_subsections[subsection] = text_chunks
+        section_number = section  # Extract the section number
         
-        chunked_policy[section] = chunked_subsections
-    
-    return chunked_policy
+        combined_text = ""  # To combine text across subsections
+        metadata_list = []  # To keep track of subsections and their metadata for this section
 
-# Chunk both old and revised policies
-chunked_old_policy = chunk_policy_sections(group_sections1)
-# chunked_revised_policy = chunk_policy_sections(group_sections2)
+        # Iterate through each subsection and concatenate the content
+        for subsection, content in subsections.items():
+            # content = content_dict['content']
+            
+            # Combine text and footnotes into a single string
+            combined_text += content['text']
+            if content['footnotes']:
+                combined_text += " " + " ".join(content['footnotes'])  # Append footnotes
+            
+            # Collect metadata for this subsection
+            metadata_list.append({
+                'subsection': subsection,
+                'type': content.get('type', ''),
+                'text': content['text'],
+                'footnotes': content.get('footnotes', [])
+            })
+        
+        # Now chunk the combined text for this entire section
+        chunks = chunk_text(combined_text, chunk_size, overlap)
+        # print(chunks)
+        
+        # Store the chunks for this section in a dictionary
+        section_chunks[section_number] = []  # Initialize the list of chunks for the section
+        
+        # Store each chunk with metadata, numbered as chunk 1, 2, 3, etc.
+        for i, chunk in enumerate(chunks):
+            section_chunks[section_number].append({
+                'chunk_number': i + 1,
+                'chunk_text': chunk,
+                'metadata': metadata_list  # Metadata for all subsections in this section
+            })
 
-# print(chunked_old_policy)
-# print(chunked_revised_policy)
+    return section_chunks
 
-# Function to store policy chunks into Pinecone
-async def store_policy_in_pinecone(policy_chunks, namespace):
-    for section, subsections in policy_chunks.items():
-        for subsection, chunks in subsections.items():
-            for idx, chunk in enumerate(chunks):
-                embedding = await get_embedding(chunk)
-                vector_id = f"{section}_{subsection}_{idx}"  # Unique ID for each chunk
-                if embedding:
-                    print(f"Storing vector ID: {vector_id} with embedding size: {len(embedding)}")
-                else:
-                    print(f"Failed to get embedding for chunk: {chunk}")
+section_object_old = extract_and_chunk_policy(group_sections1)
+section_object_new = extract_and_chunk_policy(group_sections2)
 
-             
-                # Store the embedding in Pinecone
-                try:
-                    await index.upsert(vectors=[(vector_id, embedding)], namespace=namespace, metadata={'section': section, 'subsection': subsection, 'text': chunk})
-                    print(f"Upserted vector for section: {section}, subsection: {subsection}, index: {idx}")
-                except Exception as e:
-                    print(f"Failed to upsert vector: {e}")
+print(type(section_object_new))
 
-# Separate storage of old and revised policies to avoid race conditions
+async def store_chunks_in_pinecone(section_chunks, namespace):
+    # Check the type of section_chunks (which should be a dict)
+    print(f"Type of section_chunks: {type(section_chunks)}")
+
+    for section, chunks in section_chunks.items():
+        # Check the type of chunks
+        print(f"Processing section: {section}, chunks type: {type(chunks)}, chunks: {chunks}")
+        
+        if not isinstance(chunks, list):
+            print(f"Error: Expected a list of chunks, but got {type(chunks)} for section {section}")
+            continue  # Skip this section if chunks are not properly formatted
+
+        for chunk in chunks:
+            # Check if each chunk is a dictionary
+            print(f"Processing chunk: {chunk}, chunk type: {type(chunk)}")
+
+            if 'metadata' not in chunk:
+                print(f"Error: No 'metadata' key in chunk: {chunk}")
+                continue
+
+            # Check the type of metadata and its content
+            metadata = chunk['metadata']
+            print(f"Metadata: {metadata}, metadata type: {type(metadata)}")
+
+            if isinstance(metadata, list) and len(metadata) > 0 and isinstance(metadata[0], dict):
+                chunk_metadata = {
+                    'section': section,
+                    'subsection': metadata['subsection'],
+                    'chunk_number': chunk['chunk_number'],
+                    'type': metadata['type'],
+                    'text': metadata['text']
+                }
+                print(f"Chunk metadata to be stored: {chunk_metadata}")
+            else:
+                print(f"Unexpected metadata format: {metadata}, skipping this chunk.")
+                continue  # Skip this chunk if metadata is malformed
+            
+            # Get the embedding for the chunk (simulated function)
+            chunk_text = chunk['chunk_text']  # Ensure chunk_text is correct
+            embedding = await get_embedding(chunk_text)
+            vector_id = f"{section}_{chunk['chunk_number']}"  # Unique ID for each chunk
+
+            if embedding:
+                print(f"Storing vector ID: {vector_id} with embedding size: {len(embedding)}")
+            else:
+                print(f"Failed to get embedding for chunk: {chunk}")
+                continue  # Skip storing this chunk if embedding failed
+
+            # Try to upsert into Pinecone
+            try:
+                index.upsert(vectors=[(vector_id, embedding)], namespace=namespace, metadata=chunk_metadata)
+                print(f"Successfully upserted vector for section: {section}, chunk number: {chunk['chunk_number']}")
+            except Exception as e:
+                print(f"Failed to upsert vector: {e}")
+
+# Store old and new policy into vector database in chunks
 async def store_old_policy():
-    await store_policy_in_pinecone(chunked_old_policy, namespace='ekyc2020n')
+    await store_chunks_in_pinecone(section_object_old, 'ekyc2020nn')
+async def store_new_policy():
+    await store_chunks_in_pinecone(section_object_new, 'ekyc2024nn')
 
-async def store_revised_policy():
-    await store_policy_in_pinecone(chunked_revised_policy, namespace='ekyc2024n')
+async def process_policies():
+    await asyncio.gather(store_old_policy(), store_new_policy())
+
+
 
 # Query Pinecone for matching chunks from the old policy
 async def query_old_policy_for_chunks(chunk_text, old_policy_namespace="ekyc2020n"):
@@ -162,7 +206,6 @@ async def query_old_policy_for_chunks(chunk_text, old_policy_namespace="ekyc2020
 
 # Handle response
 
-
     if response.matches:
         closest_match_text = "\n".join([match.metadata.get('text', 'No text found') for match in response.matches[:1] if match.metadata])
     else:
@@ -171,11 +214,11 @@ async def query_old_policy_for_chunks(chunk_text, old_policy_namespace="ekyc2020
     return closest_match_text
 
 # Function to compare chunks and generate the result
-async def process_and_compare_chunks(policy_chunks, retries=3):
+async def process_and_compare_chunks(section_chunks, retries=3):
     comparison_results = {}
 
     # Iterate over every section in the chunked_policy
-    for section, chunked_subsections in policy_chunks.items():
+    for section, chunked_subsections in section_chunks.items():
         section_results = {}  # Store results for each subsection within a section
     
         for subsection, chunks in chunked_subsections.items():
@@ -228,7 +271,7 @@ async def process_and_compare_chunks(policy_chunks, retries=3):
                     logging.error(f"Error in section {section}, retrying: {e}")
                     if retries > 0:
                         await asyncio.sleep(10)  # Add delay before retry
-                        return await process_and_compare_chunks(policy_chunks, retries=retries-1)
+                        return await process_and_compare_chunks(section_chunks, retries=retries-1)
 
             # Store results for each subsection
             section_results[subsection] = subsection_results
@@ -258,19 +301,24 @@ def check_token_limit(revised_text, old_text, max_tokens=4096):
     return total_tokens < max_tokens
 
 # Asynchronous function to manage tasks and display results as they complete
-async def process_sections_async(policy_chunks):
+async def process_sections_async(section_chunks):
     
     tasks = []
-    task = asyncio.create_task(process_and_compare_chunks(policy_chunks))
-    tasks.append(task)
+
+    for chunk in section_chunks:
+        task = asyncio.create_task(process_and_compare_chunks(chunk))
+        tasks.append(task)
 
     # Iterate over tasks as they complete using asyncio.as_completed()
     for task in asyncio.as_completed(tasks):
-        llm_response = await task  # Get the result of the completed task
-        if llm_response:
-            display_result(llm_response)  # Display result to the frontend immediately
-        else: 
-            logger.info(f"An error occured with task {policy_chunks['section']}, moving onto the next.")
+        try:
+            llm_response = await task  # Get the result of the completed task
+            if llm_response:
+                display_result(llm_response)  # Display result to the frontend immediately
+            else: 
+                logger.info(f"An error occured with task {section_chunks['section']}, moving onto the next.")
+        except Exception as e:
+            logger.error(f"An exepction occurred: {e}")
 
 # Function to simulate displaying results to the front end (pagination simulation)
 def display_result(llm_response):
@@ -293,7 +341,12 @@ def display_result(llm_response):
     # print(f"Page {llm_response.section_number}: {llm_response.meaningful_changes}")
     # Add logic to update your frontend's pagination or UI here (e.g., send via WebSocket to frontend)
 
+async def main():
+    await process_sections_async(section_object_new)
+    await process_policies()
+
 # Run the asynchronous processing function
 if __name__ == "__main__":
-    asyncio.run(process_sections_async(chunked_revised_policy))
+    asyncio.run(main())
+
 
