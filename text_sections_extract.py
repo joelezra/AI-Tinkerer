@@ -10,6 +10,9 @@ def extract_sections(pdf_path):
     doc = pymupdf.open(pdf_path)
     sections = {}
     current_section = None
+    current_appendix = None
+    appendix_letter_part = None
+    appendix_num_part = None
     #Get document title to filter it from future pages; this is grabbed by looking at the first line on the 2nd page
     global doc_title
     page_1 = doc[1].get_text(sort=True)
@@ -26,18 +29,34 @@ def extract_sections(pdf_path):
         text = page.get_text(sort=True)
         for line in text.splitlines():
             # Improved regex to match section numbers with leading letters and spaces
-            match = re.match(r"^(([SG]\s+)?(\d+\.\d+))(.*)$", line)
-            """
-            Groups: 1 - S 8.9
-                    2 - S
-                    3 - 8.9
-                    4-  Text (Until end of line)
-            """
-            #Also check Appendix match
-            if not match:
+            if not in_appendix:
+                match = re.match(r"^(([SG]\s+)?(\d+\.\d+))(.*)$", line)
+                """
+                Groups: 1 - S 8.9
+                        2 - S
+                        3 - 8.9
+                        4-  Text (Until end of line)
+                """
+            if in_appendix or not match: #Appendix checking logic
                 match = re.match(r"^Appendix\s+(\d+):(.*)$", line)
                 if match:
+                    current_appendix = match.group(1)
                     in_appendix = True
+                    appendix_letter_part = "0"
+                    appendix_num_part = "0"
+                    appendix_letter_part_html = "0"
+                    appendix_num_part_html = "0"
+                elif in_appendix: #Check for part starting
+                    match = re.match(r"^\s{0,2}P[Aa][Rr][Tt]\s+(\w)(.*)$", line) #Allows up to 2 spaces before the number
+                    if match:
+                        appendix_letter_part = match.group(1)
+                        section_text = match.group(2)
+                        appendix_num_part = "0"
+                    else:
+                        match = re.match(r"^\s{0,3}?(\d+)\.(.*)$", line) #Allows up to 3 spaces before the number
+                        if match:
+                            appendix_num_part = match.group(1)
+                            section_text = match.group(2)
             if match:
                 if not in_appendix:
                     section_number = match.group(3).strip()
@@ -47,9 +66,9 @@ def extract_sections(pdf_path):
                         section_type = None
                     section_text = match.group(4)  # Capture the text after the section number
                 else:
-                    section_number= "Appendix " + match.group(1)
+                    section_number= "Appendix " + current_appendix + "." + appendix_letter_part + "." + appendix_num_part
                     section_type = None
-                    section_text = match.group(2)  # Appendix name
+                    section_text = match.group(2)  # Can be the Appendix Name, the Part name, or the text following a number
                 print(section_number)
                 if section_number == stop_point:
                     print("Stopping at section " + stop_point)
@@ -72,34 +91,49 @@ def extract_sections(pdf_path):
                 sections[current_section]['text'] += " " + tidy_line(line)  # Append to the current section
         if full_stop:
             break
-        #Footnote Handling
+        #Footnote Handling; this can only be distinguished in the HTML extraction but the HTML section sometimes misplaces the section headings and cannot support table extraction
         htmltext = page.get_text("html")
         footnote_section = False
         footnotes_in_page = {} #The first time a small number is found, it's put into this dict as footnote_num : current_section; the second time is the actual footnote so it's left for later
+        
         for line in htmltext.splitlines():
             #
             #Have to find current section again, a different way: checking the line starts left enough
             #
-            marginmatch = re.match(r"^.*?left:(\d+)", line)
-            if marginmatch:
-                margin = int(marginmatch.group(1))
-                if margin < 100:
-                    trimline = re.sub(r"<.*?>","",line).strip() #Check the text of the line if it's far enough to the left
-                    section_match = re.match(r"^.*?(\d+\.\d+)", trimline)
-                    if section_match:
-                        #Also check it isn't a footnote
-                        sizematch = int(re.match(r"^.*?font-size:(\d+)", line).group(1))
-                        if sizematch > 10:
-                            current_section_html = section_match.group(1)
-            #
+            if not in_appendix:
+                marginmatch = re.match(r"^.*?left:(\d+)", line)
+                if marginmatch:
+                    margin = int(marginmatch.group(1))
+                    if margin < 100:
+                        trimline = re.sub(r"<.*?>","",line).strip() #Check the text of the line if it's far enough to the left
+                        section_match = re.match(r"^.*?(\d+\.\d+)", trimline)
+                        if section_match:
+                            #Also check it isn't a footnote
+                            sizematch = int(re.match(r"^.*?font-size:(\d+)", line).group(1))
+                            if sizematch > 10:
+                                current_section_html = section_match.group(1)
+            else:
+                #Appendix detection: 
+                #No Appendix starts halfway through a page so we can always inherit current_appendix from above; that's also when appendix_letter_part_html and appendix_num_part_html refresh
+                clean_line = re.sub(r"<(?!b>)(?!\/b>).*?>","",line)
+                match = re.match(r"^\s*<b>P[Aa][Rr][Tt]\s+(\w)(.*)$", clean_line) #Allows up to 2 spaces before the number
+                if match:
+                    appendix_letter_part_html = match.group(1)
+                    appendix_num_part_html = "0"
+                else:
+                    match = re.match(r"^\s{0,3}?(\d+)\.(.*)\s*$", clean_line) #Allows up to 3 spaces before the number
+                    if match:
+                        appendix_num_part_html = match.group(1)
+                current_section_html = "Appendix " + current_appendix + "." + appendix_letter_part_html + "." + appendix_num_part_html
+                # can try using htmlclean and searching for numbers
             #Actual Footnote Check
-            footmatch = re.match(r"^.*<span.*font-size:([\d\.]+).*?>(\d+)<\/span>(.*)", line) #I don't know why it needs the ^.*? in front but it does
+            footmatch = re.match(r"^.*<span.*font-size:([\d\.]+).*?>(\d+)<\/span>(.*)", line)
             if footmatch:
                 fontsize = float(footmatch.group(1))
                 if fontsize < 9:
                     notenum = footmatch.group(2)
                     if not notenum in footnotes_in_page: #First appearance of small number; ie the indicator and not the actual footnote
-                        footnotes_in_page[notenum] = current_section if (current_section.find("A")>-1) else current_section_html
+                        footnotes_in_page[notenum] = current_section_html
                     else:                    
                         foot_text = footmatch.group(3)
                         foot_text = re.sub(r"<.*?>","",foot_text)
@@ -130,7 +164,7 @@ def tidy_line(line):
     #We see whether the line is blank after removing page number and title; if it's blank then delete the whole line
     #Remove 'Page x of y' or 'x of y'
     maybeline = re.sub(r"([Pp]age)?\s+\d+ of \d+", "", tidyline)
-    #Remove line if it is only the doc title
+    #Remove the doc title
     maybeline = maybeline.replace(doc_title,"")
     maybeline = re.sub(r"Issued on:\s+\d+\s+\w+\s+\d+","", maybeline)
     if maybeline.strip() == "":
@@ -199,10 +233,10 @@ def test_print_all(pdf_path):
 def test_html(pdf_path, page):
     doc = pymupdf.open(pdf_path)
     htmlout = doc[page].get_text("html", sort=True)
-    with open("test_htmlout.txt", 'w', encoding="utf-8") as f:
+    with open("test_htmlout.html", 'w', encoding="utf-8") as f:
         for line in htmlout.splitlines():
             f.write(f"{line}\n")
-    print(f"Wrote to test_htmlout.txt")
+    print(f"Wrote to test_htmlout.html")
 
 def test_html_clean(pdf_path, page):
     doc = pymupdf.open(pdf_path)
@@ -217,9 +251,18 @@ def test_html_clean(pdf_path, page):
 #sections1 = extract_sections(pdf_1_path )
 #sections2 = extract_sections(pdf_2_path )
 
-output_file = "test_output.txt"
-#save_sections_to_file(pdf_1_path, output_file)
+output_file = "test_output2.txt"
+save_sections_to_file(pdf_2_path, output_file)
 
-#test_html(pdf_3_path, 7)
-#test_html_clean(pdf_1_path, 8)
-test_extract_to_file(pdf_4_path,"pdf4raw")
+#test_html(pdf_2_path, 19)
+#test_html_clean(pdf_2_path, 19)
+#test_extract_to_file(pdf_4_path,"pdf4raw")
+
+def test_table_extract(pdf_path,page):
+    doc = pymupdf.open(pdf_path)
+    x = doc[page].find_tables().tables
+    if x != []:
+        x = x[0]
+    print(x.extract())
+
+#test_table_extract(pdf_1_path,21)
