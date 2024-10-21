@@ -1,6 +1,5 @@
 import re
 import pymupdf
-import html
 # from sentence_transformers import SentenceTransformer, util #for semantic comparison
 
 #For better semantic comparison, install sentence-transformers: pip install sentence-transformers
@@ -25,10 +24,25 @@ def extract_sections(pdf_path):
     section_type_hold = None #Used to remember whether an S or G was mentioned before a section
 
     for page in doc:
+        has_table = False
+        table_bounds = None
         page_text = page.get_text("dict", sort=True)
         footnote_section = False
         footnotes_in_page = {} #The first time a small number is found, it's put into this dict as footnote_num : current_section; the second time is the actual footnote so it's left for later
+        all_tables = page.find_tables().tables
+        if all_tables != []:
+            tables = all_tables[0] #At the moment this code only supports one table per page but expanding it for more shouldn't be hard
+            table_bounds = tables.bbox
+            has_table = True
+            if table_bounds[3] < 70: #On some documents mistakes page header for a table
+                if len(all_tables) > 1:
+                    tables = all_tables[1]
+                    table_bounds = tables.bbox
+                else:
+                    has_table = False
+                    table_bounds = None
 
+            table_added = False #Checks if the table has been added to a section dictionary yet
         for block in page_text['blocks']:
             if not 'lines' in block: #Ignore image blocks
                 continue
@@ -70,8 +84,11 @@ def extract_sections(pdf_path):
                             appendix_num_part = "0"
                         else:
                             match = re.match(r"^\s{0,2}?(\d+)\.\s+(.*)$", text) #Allows up to 2 spaces before the number
-                            if not span['origin'][0] < 80:
+                            if not span['origin'][0] < 80: #Doesn't count if too far right
                                 match = None
+                            if has_table: #Doesn't count if inside table bounds
+                                if span['origin'][1] > table_bounds[1] and span['origin'][1] < table_bounds[3]:
+                                    match = None
                             if match:
                                 appendix_num_part = match.group(1)
                     if match: #Update appendix number
@@ -87,6 +104,9 @@ def extract_sections(pdf_path):
                         notenum = footmatch.group(1)
                         if not notenum in footnotes_in_page: #First appearance of small number; ie the indicator and not the actual footnote
                             footnotes_in_page[notenum] = section_number
+                            if table_bounds: #Do not write to anything if the footnote number is inside the table bounds
+                                if span['origin'][1] > table_bounds[1] and span['origin'][1] < table_bounds[3]:
+                                    continue
                             sections[section_number]['text'] += "(" + notenum + ")"
                         else: #Actual footnote
                             footnote_section = True
@@ -100,15 +120,31 @@ def extract_sections(pdf_path):
                     if not match and section_number: 
                         if section_type_hold: #This skips the adding if we're in the space between S/G and the section number
                             continue
+                        
+
                         add_text = tidy_line(text)
                                 
                         if add_text != "":
                                 add_text = " " + add_text
+
+                        if table_bounds: #If this is the first line in the table, throw the whole table in, and then skip writing all the other lines until we're out of the table area
+                            if span['origin'][1] > table_bounds[1] and span['origin'][1] < table_bounds[3]:
+                                if not table_added:
+                                    sections[section_number]['text'] += "\n" + tables.to_markdown()
+                                    table_added = True
+                                continue
+
                         if not footnote_section: #This might cause errors if there are any footnotes before the very first section
                             sections[section_number]['text'] += add_text
                         else: 
                             sections[linked_section]['footnotes'][notenum] += add_text
-
+    #Clear out any sections that are empty
+    to_delete = []
+    for section_number, section_contents in sections.items():
+        if section_contents['text'] == "" or section_contents['text'] == None:
+            to_delete.append(section_number)
+    for i in to_delete:
+        del sections[i]
     return sections
 
 #Trims lines
@@ -127,20 +163,6 @@ def tidy_line(line):
     if maybeline.strip() == "":
         tidyline = ""
     return tidyline
-
-#Unescapes html entities like &#x2019; to convert them to normal
-def tidy_html(line):
-    tidyhtml = line.strip()
-    entities = re.findall(r'&#[xX]?[0-9a-fA-F]+;', tidyhtml)
-    # Replace each entity with its corresponding symbol
-    for entity in entities:
-        symbol = html.unescape(entity)
-        tidyhtml = tidyhtml.replace(entity, symbol)
-    return tidyhtml
-
-def get_title(page):
-    return
-
 
 # Example usage:
 pdf_1_path = "sample/ekyc_2024_04.pdf"  # Replace with your PDF file paths
@@ -177,22 +199,43 @@ def test_dict(pdf_path, output_file, page, mode="default"):
     print(f"Wrote to {output_file}")
 
 
-output_file = "test_output2.txt"
-
-mode=1
-if mode == 1:
-    save_sections_to_file(pdf_2_path, output_file)
-else:
-    output_file = "test_dictout3.py"
-    test_dict(pdf_2_path, output_file, 10, "txtonsly")
-
-#test_extract_to_file(pdf_4_path,"pdf4raw")
-
 def test_table_extract(pdf_path,page):
     doc = pymupdf.open(pdf_path)
     x = doc[page].find_tables().tables
     if x != []:
         x = x[0]
-    print(x.extract())
+    print(x)
+    
+    
 
-#test_table_extract(pdf_1_path,21)
+def test_dual_extract(pdf_path,output_file,page):
+    doc = pymupdf.open(pdf_path)
+    x = doc[page].find_tables().tables
+    if x != []:
+        x = x[0]
+    bounds = x.bbox
+    dictout = doc[page].get_text("dict", sort=True)
+    with open(output_file, 'w', encoding="utf-8") as f:
+        for block in dictout['blocks']:
+                for blockpart in block['lines']:
+                    for span in blockpart['spans']:
+                        ycord = span['origin'][1]
+                        if ycord < bounds[1] or ycord > bounds[3]:
+                            f.write(f"{span['text']}\n")
+    print(f"Wrote to {output_file}")
+
+
+output_file = "test_output2.txt"
+
+mode=1
+if mode == 1:
+    save_sections_to_file(pdf_4_path, "test_output4.txt")
+elif mode==2:
+    output_file = "test_dictout3.py"
+    test_dict(pdf_2_path, output_file, 2, "txtonsly")
+elif mode==3:
+    test_table_extract(pdf_2_path,15)
+elif mode==4:
+    test_dual_extract(pdf_2_path,"test_tableout.txt",15)
+
+#test_extract_to_file(pdf_4_path,"pdf4raw")
