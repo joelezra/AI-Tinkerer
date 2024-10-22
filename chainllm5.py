@@ -89,20 +89,22 @@ def extract_and_chunk_policy(policy_dict, chunk_size=1000, overlap=100):
             
             # Combine text and footnotes into a single string
             combined_text += content['text']
-            if content['footnotes']:
-                combined_text += " " + " ".join(content['footnotes'])  # Append footnotes
+            # if content['footnotes']:
+            #     combined_text += " " + " ".join(content['footnotes'])  # Append footnotes
             
             # Collect metadata for this subsection
             metadata_list.append({
                 'subsection': subsection,
-                'type': content.get('type', ''),
-                'text': content['text'],
-                'footnotes': content.get('footnotes', [])
+                'type': content['type'],
+                # 'text': combined_text,
+                'footnotes': content['footnotes']
             })
+
+            print(f"metadata: {metadata_list}")
         
         # Now chunk the combined text for this entire section
         chunks = chunk_text(combined_text, chunk_size, overlap)
-        # print(chunks)
+        print(chunks)
         
         # Store the chunks for this section in a dictionary
         section_chunks[section_number] = []  # Initialize the list of chunks for the section
@@ -149,7 +151,7 @@ async def store_chunks_in_pinecone(section_chunks, namespace):
             if isinstance(metadata, list) and len(metadata) > 0 and isinstance(metadata[0], dict):
                 chunk_metadata = {
                     'section': section,
-                    'subsection': metadata['subsection'],
+                    # 'subsection': metadata['subsection'],
                     'chunk_number': chunk['chunk_number'],
                     'type': metadata['type'],
                     'text': metadata['text']
@@ -344,6 +346,7 @@ def display_result(llm_response):
 async def main():
     await process_sections_async(section_object_new)
     await process_policies()
+    await process_and_compare_chunks(section_object_new)
 
 # Run the asynchronous processing function
 if __name__ == "__main__":
