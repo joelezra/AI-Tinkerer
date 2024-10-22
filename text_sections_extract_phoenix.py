@@ -133,7 +133,8 @@ def extract_sections(pdf_path):
                                     sections[section_number]['text'] += "\n" + tables.to_markdown()
                                     table_added = True
                                 continue
-
+                        if span['origin'][1] < 70:  #Ignore line if it's too high on the page
+                            continue
                         if not footnote_section: #This might cause errors if there are any footnotes before the very first section
                             sections[section_number]['text'] += add_text
                         else: 
@@ -229,7 +230,7 @@ output_file = "test_output2.txt"
 
 mode=1
 if mode == 1:
-    save_sections_to_file(pdf_4_path, "test_output4.txt")
+    save_sections_to_file(pdf_2_path, "test_output2.txt")
 elif mode==2:
     output_file = "test_dictout3.py"
     test_dict(pdf_2_path, output_file, 2, "txtonsly")
