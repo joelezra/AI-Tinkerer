@@ -286,7 +286,7 @@ def test_titles_extract(pdf_path): #Extracts clusters of bold lines that have mo
 output_file = "test_output2.txt"
 
 #For testing
-mode=1
+mode=7
 if mode == 1:
     save_sections_to_file(pdf_2_path, "test_output2.txt")
 if mode==2:
