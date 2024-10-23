@@ -37,6 +37,18 @@ parser = StrOutputParser()
 llm = ChatOpenAI()
 embeddings = OpenAIEmbeddings()
 
+class SubsectionComparison(BaseModel):
+    subsection: str  # Subsection number
+    meaningful_changes_comparison: Optional[str]  # LLM output
+
+class SectionComparison(BaseModel):
+    section: str  # Section number
+    comparisons: List[SubsectionComparison]  # List of comparisons for subsections
+
+class DocumentComparisonResult(BaseModel):
+    document_title: str
+    sections: List[SectionComparison]  # List of section comparisons
+
 # Define a Pydantic model to structure the response
 class LLMResponseModel(BaseModel):
     section_number: str
@@ -176,6 +188,95 @@ async def store_chunks_in_pinecone(index, section_chunks, namespace):
     
     # Run all storage tasks concurrently
     await asyncio.gather(*tasks)
+
+# Function to retrieve all chunks from Pinecone (old)
+def retrieve_all_chunks(index, namespace, subsections=None):
+    # If you want to retrieve specific sections, you can pass the section filter
+    query_response = index.query(
+        vector=None,  # We don't need a specific vector, we retrieve all with metadata
+        namespace=namespace,
+        filter={"subsection": subsections} if subsections else None,
+        top_k=1000  # Large number to retrieve all chunks
+    )
+    
+    return query_response['matches']
+
+# Function to query Pinecone and get the top similar chunks from the new document namespace
+async def find_similar_chunks(index, new_chunk_vector, namespace, top_k=1):
+    query_response = await index.query(
+        vector=new_chunk_vector,  # Query using the old chunk embedding vector
+        namespace=namespace,  # Specify the namespace for the new document embeddings
+        top_k=top_k,  # Retrieve the top_k most similar chunks
+        include_metadata=True  # Include metadata in the response
+    )
+    
+    return query_response['matches']
+
+# Function to match corresponding old and new chunks using vector similarity across namespaces
+async def match_chunks_using_similarity(index, old_chunks, new_doc_namespace, top_k=1):
+    matched_chunks = []
+    
+    for old_chunk in old_chunks:
+        old_vector = old_chunk['values']  # Use the embedding vector for the old chunk
+        
+        # Find the top similar chunk from the new document using vector similarity
+        similar_chunks = await find_similar_chunks(index, old_vector, namespace=new_doc_namespace, top_k=top_k)
+        
+        for similar_chunk in similar_chunks:
+            matched_chunks.append({
+                'old_chunk': old_chunk['metadata']['text'],  # Old chunk text
+                'new_chunk': similar_chunk['metadata']['text'],  # New chunk text
+                'old_metadata': old_chunk['metadata'],  # Metadata for old chunk
+                'new_metadata': similar_chunk['metadata'],  # Metadata for the matched chunk
+                'similarity_score': similar_chunk['score']  # Similarity score from the Pinecone query
+            })
+    
+    return matched_chunks
+
+# Function to compare old and new chunks using OpenAI LLM
+async def compare_chunks_with_llm(old_chunk, new_chunk, subsection):
+    # LLM prompt to focus on meaningful changes requiring internal policy updates
+    prompt = f"Compare the following subsections and list only the meaningful changes that would require internal policy updates:\n\nOld Subsection:\n{old_chunk}\n\nNew Subsection:\n{new_chunk}"
+    
+    # Query OpenAI for comparison analysis
+    openai_response = await client.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": "You are an expert in legal compliance and document comparison."},
+            {"role": "user", "content": prompt}
+        ],
+        max_tokens=2000,
+        temperature=0.0
+    )
+    
+    # Return the comparison result as a dictionary for Pydantic model
+    return {
+        "subsection": subsection,
+        "meaningful_changes_comparison": openai_response.choices[0].message.content.strip()
+    }
+
+# Main function to handle the entire comparison and output the results in Pydantic JSON format
+async def compare_documents_section_by_section(old_chunks, new_doc_namespace, index):
+    comparison_results = []
+
+    # Match the old and new document chunks using vector similarity across namespaces
+    matched_chunks = await match_chunks_using_similarity(index, old_chunks, new_doc_namespace)
+
+    # For each matched chunk, compare them using the LLM
+    for match in matched_chunks:
+        old_text = match['old_chunk']
+        new_text = match['new_chunk']
+        subsection_old = match['old_metadata']['subsection']
+        subsection_new = match['new_metadata']['subsection']
+
+        # Get the meaningful comparison from the LLM
+        comparison_result = await compare_chunks_with_llm(old_text, new_text, subsection_old, subsection_new)
+
+        # Append to the result list (using the Pydantic model later)
+        comparison_results.append(SubsectionComparison(**comparison_result))
+
+    return comparison_results
+
 
 async def main():
     # Step 1: Initialize Pinecone (with environment variable for API key)
