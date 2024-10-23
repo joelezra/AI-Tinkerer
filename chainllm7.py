@@ -273,7 +273,7 @@ async def main():
 #     # Store chunks in Pinecone
     # await store_chunks_in_pinecone(index, section_chunked_old, 'ekyc2020_phoenix')
     # await store_chunks_in_pinecone(index, section_chunked_new, 'ekyc2024_phoenix2')
-    await store_chunks_in_pinecone(index, section_chunked_rmit_old, 'rmit2020_phoenix')
+    # await store_chunks_in_pinecone(index, section_chunked_rmit_old, 'rmit2020_phoenix')
     # await store_chunks_in_pinecone(index, section_chunked_rmit_new, 'rmit2023_phoenix')
 
 #     # Close the Pinecone connection
