@@ -43,11 +43,11 @@ def extract_sections(pdf_path):
             if match:
                 if not in_appendix:
                     section_number = match.group(3).strip()
-                    section_text = match.group(4)  # Capture the text after the section number
+                    section_text = section_number + ':' + match.group(4)  # Capture the text after the section number
                     section_type = match.group(2).strip() if match.group(2) else None
                 else:
                     section_number = "Appendix " + match.group(1)
-                    section_text = match.group(2)  # Appendix name
+                    section_text = section_number + ':' + match.group(2)  # Appendix name
                     section_type = None
 
                 # print(section_number)
@@ -164,25 +164,25 @@ pdf_2_path = "sample/ekyc_2020_06.pdf"
 pdf_3_path = "sample/rmit_2023_06.pdf"
 pdf_4_path = "sample/rmit_2020_06.pdf"
 
-# def save_sections_to_file(pdf, output_file):
-#     """Saves the extracted sections to a text file."""
-#     sections = extract_sections(pdf)
-#     with open(output_file, 'w', encoding="utf-8") as f:
-#         for section_number, section_contents in sections.items():
-#             f.write(f"Section: {section_number}\n")
-#             f.write(f"Type: {section_contents['type']}\n")
-#             f.write(f"Text: { section_contents['text'] }\n")
-#             # if 'footnotes' in section_contents:
-#             # Ensure footnotes are present for every section, even if empty
-#             footnotes = section_contents.get('footnotes', {})
-#             if not footnotes:
-#                 f.write("Footnotes: None\n")
-#             else:
-#                 for num, text in footnotes.items():
-#                     f.write(f"Footnote {num}: {text}\n")
+def save_sections_to_file(pdf, output_file):
+    """Saves the extracted sections to a text file."""
+    sections = extract_sections(pdf)
+    with open(output_file, 'w', encoding="utf-8") as f:
+        for section_number, section_contents in sections.items():
+            f.write(f"Section: {section_number}\n")
+            f.write(f"Type: {section_contents['type']}\n")
+            f.write(f"Text: { section_contents['text'] }\n")
+            # if 'footnotes' in section_contents:
+            # Ensure footnotes are present for every section, even if empty
+            footnotes = section_contents.get('footnotes', {})
+            if not footnotes:
+                f.write("Footnotes: None\n")
+            else:
+                for num, text in footnotes.items():
+                    f.write(f"Footnote {num}: {text}\n")
                     
-#             f.write("\n")  # Add an empty line between sections
-#     print(f"Wrote to {output_file}")
+            f.write("\n")  # Add an empty line between sections
+    print(f"Wrote to {output_file}")
 
 # def test_extract_to_file(pdf_path,output='test_extract'):
 #     to_write = test_print_all(pdf_path)
@@ -230,8 +230,8 @@ pdf_4_path = "sample/rmit_2020_06.pdf"
 #sections1 = extract_sections(pdf_1_path )
 #sections2 = extract_sections(pdf_2_path )
 
-# output_file = "test_output.txt"
-#save_sections_to_file(pdf_1_path, output_file)
+output_file = "test_output.txt"
+save_sections_to_file(pdf_1_path, output_file)
 
 #test_html(pdf_3_path, 7)
 #test_html_clean(pdf_1_path, 8)
