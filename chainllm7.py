@@ -5,14 +5,13 @@ from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import StrOutputParser
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from openai import AsyncOpenAI
-import openai
 from dotenv import load_dotenv
 import asyncio
-from text_sections_extract2 import extract_sections
-from group_dict import group_subsections
+from text_sections_extract_phoenix import extract_sections_with_prefix
 from pydantic import BaseModel, ValidationError
 import re
 import logging
+from typing import Optional, List
 
 # Load environment variables
 load_dotenv()
@@ -55,12 +54,17 @@ class LLMResponseModel(BaseModel):
     meaningful_changes: list[str]
 
 # Extract text from new policy in subsection dictionary
-pdf_sections1 = extract_sections("ekyc_2020_06.pdf")
-pdf_sections2 = extract_sections("ekyc_2024_04.pdf")
+pdf_sections_ekyc_old = extract_sections_with_prefix("ekyc_2020_06.pdf")
+pdf_sections_ekyc_new = extract_sections_with_prefix("ekyc_2024_04.pdf")
+pdf_sections_rmit_old = extract_sections_with_prefix("rmit_2020_06.pdf")
+pdf_sections_rmit_new = extract_sections_with_prefix("rmit_2023_06.pdf")
 
-# Group subsection dict into section dict
-group_sections1 = group_subsections(pdf_sections1) # Old policy
-group_sections2 = group_subsections(pdf_sections2) # revised policy
+# pdf_sections1 = extract_sections("ekyc_2020_06.pdf")
+# pdf_sections2 = extract_sections("ekyc_2024_04.pdf")
+
+# # Group subsection dict into section dict
+# group_sections1 = group_subsections(pdf_sections1) # Old policy
+# group_sections2 = group_subsections(pdf_sections2) # revised policy
 
 def extract_sections_and_chunk(policy_dict, chunk_size=1500, overlap=100):
     section_chunks = {}
@@ -114,8 +118,8 @@ def extract_sections_and_chunk(policy_dict, chunk_size=1500, overlap=100):
     
     return section_chunks
 
-section_chunked_old = extract_sections_and_chunk(group_sections1)
-section_chunked_new = extract_sections_and_chunk(group_sections2)
+# section_chunked_old = extract_sections_and_chunk(pdf_sections1)
+# section_chunked_new = extract_sections_and_chunk(pdf_sections2)
 
 # Function to get embeddings asynchronously from OpenAI
 async def get_embedding_async(text):
@@ -189,94 +193,33 @@ async def store_chunks_in_pinecone(index, section_chunks, namespace):
     # Run all storage tasks concurrently
     await asyncio.gather(*tasks)
 
-# Function to retrieve all chunks from Pinecone (old)
-def retrieve_all_chunks(index, namespace, subsections=None):
-    # If you want to retrieve specific sections, you can pass the section filter
-    query_response = index.query(
-        vector=None,  # We don't need a specific vector, we retrieve all with metadata
-        namespace=namespace,
-        filter={"subsection": subsections} if subsections else None,
-        top_k=1000  # Large number to retrieve all chunks
+# Function to retrieve all vectors by iterating through chunk_ids
+def retrieve_all_vectors(index):
+    tasks = []
+    all_vectors = []
+
+    pc = Pinecone(
+    api_key=os.environ.get("PINECONE_API_KEY") or 'PINECONE_API_KEY'
     )
+    index_name='pdf-gaia-test'
+
+    index = pc.Index(index_name)
+
+    response = index.query( # Query the Pinecone vector index
+            id='1_1', 
+            namespace='ekyc2024_phoenix', 
+            top_k=1000, 
+            include_metadata=True
+            )
     
-    return query_response['matches']
-
-# Function to query Pinecone and get the top similar chunks from the new document namespace
-async def find_similar_chunks(index, new_chunk_vector, namespace, top_k=1):
-    query_response = await index.query(
-        vector=new_chunk_vector,  # Query using the old chunk embedding vector
-        namespace=namespace,  # Specify the namespace for the new document embeddings
-        top_k=top_k,  # Retrieve the top_k most similar chunks
-        include_metadata=True  # Include metadata in the response
-    )
+    # print(response)
+    # print(type(response))
     
-    return query_response['matches']
+    # Access the 'matches' attribute in the response
+    for match in response['matches']:  # Use response.matches if it's an attribute
+        all_vectors.append(match)
 
-# Function to match corresponding old and new chunks using vector similarity across namespaces
-async def match_chunks_using_similarity(index, old_chunks, new_doc_namespace, top_k=1):
-    matched_chunks = []
-    
-    for old_chunk in old_chunks:
-        old_vector = old_chunk['values']  # Use the embedding vector for the old chunk
-        
-        # Find the top similar chunk from the new document using vector similarity
-        similar_chunks = await find_similar_chunks(index, old_vector, namespace=new_doc_namespace, top_k=top_k)
-        
-        for similar_chunk in similar_chunks:
-            matched_chunks.append({
-                'old_chunk': old_chunk['metadata']['text'],  # Old chunk text
-                'new_chunk': similar_chunk['metadata']['text'],  # New chunk text
-                'old_metadata': old_chunk['metadata'],  # Metadata for old chunk
-                'new_metadata': similar_chunk['metadata'],  # Metadata for the matched chunk
-                'similarity_score': similar_chunk['score']  # Similarity score from the Pinecone query
-            })
-    
-    return matched_chunks
-
-# Function to compare old and new chunks using OpenAI LLM
-async def compare_chunks_with_llm(old_chunk, new_chunk, subsection):
-    # LLM prompt to focus on meaningful changes requiring internal policy updates
-    prompt = f"Compare the following subsections and list only the meaningful changes that would require internal policy updates:\n\nOld Subsection:\n{old_chunk}\n\nNew Subsection:\n{new_chunk}"
-    
-    # Query OpenAI for comparison analysis
-    openai_response = await client.chat.completions.create(
-        model="gpt-4",
-        messages=[
-            {"role": "system", "content": "You are an expert in legal compliance and document comparison."},
-            {"role": "user", "content": prompt}
-        ],
-        max_tokens=2000,
-        temperature=0.0
-    )
-    
-    # Return the comparison result as a dictionary for Pydantic model
-    return {
-        "subsection": subsection,
-        "meaningful_changes_comparison": openai_response.choices[0].message.content.strip()
-    }
-
-# Main function to handle the entire comparison and output the results in Pydantic JSON format
-async def compare_documents_section_by_section(old_chunks, new_doc_namespace, index):
-    comparison_results = []
-
-    # Match the old and new document chunks using vector similarity across namespaces
-    matched_chunks = await match_chunks_using_similarity(index, old_chunks, new_doc_namespace)
-
-    # For each matched chunk, compare them using the LLM
-    for match in matched_chunks:
-        old_text = match['old_chunk']
-        new_text = match['new_chunk']
-        subsection_old = match['old_metadata']['subsection']
-        subsection_new = match['new_metadata']['subsection']
-
-        # Get the meaningful comparison from the LLM
-        comparison_result = await compare_chunks_with_llm(old_text, new_text, subsection_old, subsection_new)
-
-        # Append to the result list (using the Pydantic model later)
-        comparison_results.append(SubsectionComparison(**comparison_result))
-
-    return comparison_results
-
+    return all_vectors
 
 async def main():
     # Step 1: Initialize Pinecone (with environment variable for API key)
@@ -287,16 +230,24 @@ async def main():
 
     index = pc.Index(index_name, 'https://pdf-gaia-test-f3fg8ao.svc.aped-4627-b74a.pinecone.io')
 
+    # index_stats = index.describe_index_stats()
+    # print(index_stats)
+
     # Define the old policy namespace and index
     old_policy_namespace = "ekyc2020n"
 
-    section_chunked_old = extract_sections_and_chunk(group_sections1)
-    section_chunked_new = extract_sections_and_chunk(group_sections2)
+    # Example of how you would use this in an async context
+    # Assuming `index` is already initialized and `section_chunks` is defined
+    namespace = 'ekyc_2024nn'
 
+    # Call the async function to retrieve all vectors
+    all_vectors = retrieve_all_vectors(index)
 
-#     # Retrieve all old chunks
-#     all_old_chunks = await retrieve_all_old_chunks(old_policy_namespace, index_name)
-#     print(all_old_chunks)
+    # print(all_vectors)
+
+    # print(f"Retrieved {len(all_vectors)} vectors.")
+    # print(all_vectors)
+
 
 #     # Output the number of retrieved chunks and a sample
 #     print(f"Retrieved {len(all_old_chunks)} chunks from the old policy namespace.")
@@ -306,13 +257,24 @@ async def main():
 #     # if index_name not in pinecone.list_indexes():
 #     #     pinecone.create_index(index_name, dimension=1536)  # Dimension of 'text-embedding-ada-002' embeddings
 
-    # Step 3: Chunk and extract sections from both policy PDFs
-    # section_chunked_old = extract_sections_and_chunk(group_sections1)
-    # section_chunked_new = extract_sections_and_chunk(group_sections2)
+    # Step 3: Chunk and extract sections from both policy PDF
+    # pdf_sections1 = extract_sections_with_prefix("ekyc_2020_06.pdf")
+    # pdf_sections2 = extract_sections_with_prefix("ekyc_2024_04.pdf")
+    pdf_sections_rmit_old = extract_sections_with_prefix("rmit_2020_06.pdf")
+    pdf_sections_rmit_new = extract_sections_with_prefix("rmit_2023_06.pdf")
+
+    # section_chunked_old = extract_sections_and_chunk(pdf_sections1)
+    # section_chunked_new = extract_sections_and_chunk(pdf_sections2)
+
+    section_chunked_rmit_old = extract_sections_and_chunk(pdf_sections_rmit_old)
+    section_chunked_rmit_new = extract_sections_and_chunk(pdf_sections_rmit_new)
+
 
 #     # Store chunks in Pinecone
-#     # await store_chunks_in_pinecone(index, section_chunked_old, 'ekyc2020nn')
-#     # await store_chunks_in_pinecone(index, section_chunked_new, 'ekyc2024nn')
+    # await store_chunks_in_pinecone(index, section_chunked_old, 'ekyc2020_phoenix')
+    # await store_chunks_in_pinecone(index, section_chunked_new, 'ekyc2024_phoenix2')
+    await store_chunks_in_pinecone(index, section_chunked_rmit_old, 'rmit2020_phoenix')
+    # await store_chunks_in_pinecone(index, section_chunked_rmit_new, 'rmit2023_phoenix')
 
 #     # Close the Pinecone connection
 #     # pinecone.deinit()
