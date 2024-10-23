@@ -282,13 +282,14 @@ def test_titles_extract(pdf_path): #Extracts clusters of bold lines that have mo
 
 output_file = "test_output2.txt"
 
-mode=1
+#For testing
+mode=8
 if mode == 1:
     save_sections_to_file(pdf_2_path, "test_output2.txt")
-elif mode==2:
+if mode==2:
     output_file = "test_dictout3.txt"
     test_dict(pdf_2_path, output_file, 1, "txtonly")
-elif mode==3:
+if mode==3:
     test_table_extract(pdf_2_path,15)
 if mode == 4:
     test_titles_extract(pdf_3_path)
