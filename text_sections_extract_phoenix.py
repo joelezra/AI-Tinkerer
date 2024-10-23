@@ -87,8 +87,11 @@ def extract_sections(pdf_path):
             elif in_appendix: #Check for part starting
                 match = re.match(r"^\s{0,2}P[Aa][Rr][Tt]\s+(\w)(.*)$", text) #Allows up to 2 spaces before the number
                 if match:
-                    appendix_letter_part = match.group(1)
-                    appendix_num_part = "0"
+                    if not span['origin'][0] < 80: #Doesn't count if too far right
+                        match = None
+                    if match:
+                        appendix_letter_part = match.group(1)
+                        appendix_num_part = "0"
                 else:
                     match = re.match(r"^\s{0,2}?(\d+)\.\s+(.*)$", text) #Allows up to 2 spaces before the number
                     if not span['origin'][0] < 80: #Doesn't count if too far right
@@ -158,12 +161,13 @@ def extract_sections(pdf_path):
                 else: 
                     sections[linked_main][linked_section]['footnotes'][notenum] += add_text
     #Clear out any sections that are empty
-    # to_delete = []
-    # for section_number, section_contents in sections.items():
-    #     if section_contents['text'] == "" or section_contents['text'] == None:
-    #         to_delete.append(section_number)
-    # for i in to_delete:
-    #     del sections[i]
+    for subsection in sections:
+        to_delete = []
+        for section_number, section_contents in sections[subsection].items():
+            if section_contents['text'] == "" or section_contents['text'] == None:
+                to_delete.append(section_number)
+        for i in to_delete:
+            del sections[subsection][i]
     return sections
 
 #Trims lines
@@ -271,7 +275,7 @@ def test_titles_extract(pdf_path): #Extracts clusters of bold lines that have mo
 
 output_file = "test_output2.txt"
 
-mode=6
+mode=7
 if mode == 1:
     save_sections_to_file(pdf_2_path, "test_output2.txt")
 elif mode==2:
