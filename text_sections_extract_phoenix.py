@@ -71,6 +71,7 @@ def extract_sections(pdf_path):
                         add_text = ""
                     sections[main_section][section_number]['text'] = add_text
                     sections[main_section][section_number]['type'] = section_type_hold
+                    sections[main_section][section_number]['footnotes'] = {}
                     print("Section " + section_number)
                 section_type_hold = None
                 continue
@@ -107,6 +108,7 @@ def extract_sections(pdf_path):
                     sections[main_section][section_number] = {}
                     sections[main_section][section_number]['text'] = ""
                     sections[main_section][section_number]['type'] = None
+                    sections[main_section][section_number]['footnotes'] = {}
                     print("Section " + section_number)
             #Check for footnote number
             footmatch = re.match(r"^\s*(\d+)\s*$", text)
@@ -122,8 +124,8 @@ def extract_sections(pdf_path):
                     footnote_section = True
                     linked_section = footnotes_in_page[notenum]
                     linked_main = linked_section.split(".")[0]
-                    if not 'footnotes' in sections[linked_main][linked_section]: #If this is the first footnote for the section, create 'footnotes' key
-                        sections[linked_main][linked_section]['footnotes'] = {}
+                    #if not 'footnotes' in sections[linked_main][linked_section]: #If this is the first footnote for the section, create 'footnotes' key
+                    #    sections[linked_main][linked_section]['footnotes'] = {}
                     sections[linked_main][linked_section]['footnotes'].update( { notenum: "" } )
                     print("Footnote " + notenum)
                 continue
@@ -180,10 +182,11 @@ def extract_sections_with_prefix(pdf_path):
 #Trims lines
 def tidy_line(line):
     tidyline = line.strip()
-    #if re.match(r"\([ivx]{1,4}\)", tidyline):
-    #    tidyline = "\n" + tidyline #Tries to put a linebreak in front of (i), (iv), etc - currently detects it properly but inserting \n does not work
     #Remove spaces
     tidyline = re.sub(r"(\s+)"," ", tidyline)
+
+    if re.match(r"\([ivx]{1,4}\)", tidyline):
+        tidyline = "\n" + tidyline #Tries to put a linebreak in front of (i), (iv), etc
     #We see whether the line is blank after removing title; if it's blank then delete the whole line
     maybeline = tidyline.replace(doc_title,"")
     maybeline = re.sub(r"Issued on:\s+\d+\s+\w+\s+\d+","", maybeline)
@@ -283,7 +286,7 @@ def test_titles_extract(pdf_path): #Extracts clusters of bold lines that have mo
 output_file = "test_output2.txt"
 
 #For testing
-mode=8
+mode=1
 if mode == 1:
     save_sections_to_file(pdf_2_path, "test_output2.txt")
 if mode==2:
