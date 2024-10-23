@@ -170,6 +170,13 @@ def extract_sections(pdf_path):
             del sections[subsection][i]
     return sections
 
+def extract_sections_with_prefix(pdf_path):
+    sections = extract_sections(pdf_path)
+    for subsection in sections:
+        for section_number, section_contents in sections[subsection].items():
+            section_contents['text'] = "Subsection " + section_number + ": " + section_contents['text']
+    return sections
+
 #Trims lines
 def tidy_line(line):
     tidyline = line.strip()
@@ -205,7 +212,7 @@ def save_sections_to_file_old(pdf, output_file):
     print(f"Wrote to {output_file}")
 
 def save_sections_to_file(pdf, output_file):
-    sections = extract_sections(pdf)
+    sections = extract_sections_with_prefix(pdf)
     with open(output_file, 'w', encoding="utf-8") as f:
         for section, subsections in sections.items():
                 f.write(f"Section: {section}\n")
@@ -275,7 +282,7 @@ def test_titles_extract(pdf_path): #Extracts clusters of bold lines that have mo
 
 output_file = "test_output2.txt"
 
-mode=7
+mode=1
 if mode == 1:
     save_sections_to_file(pdf_2_path, "test_output2.txt")
 elif mode==2:
